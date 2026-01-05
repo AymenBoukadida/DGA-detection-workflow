@@ -1,3 +1,4 @@
+![DNS DGA Detection Workflow](https://github.com/AymenBoukadida/DGA-detection-workflow/blob/0db2c3b9af1a35bdb38a5a4487b83214f02591db/image.png?raw=true)
 
 # 🛡️ DNS DGA Detection & Automated SOC Pipeline
 
@@ -7,11 +8,6 @@ Modern malware families commonly use **Domain Generation Algorithms (DGAs)** to 
 ajd92hsjkdqw.biz
 mnsf82hdsak.ru
 
-```
-
-
-
-```
 
 These domains are used for:
 
