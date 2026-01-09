@@ -76,13 +76,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.0.13:9000/api/alert",
+        "url": "http://thehive/api/alert",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer WTN6o4TU5UKfzLDabaP67w5euqPuteZl"
+              "value": "Bearer hive api key"
             }
           ]
         },
@@ -103,13 +103,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://192.168.0.13:9000/api/alert/{{$json.id}}/createCase",
+        "url": "=http://thehive/api/alert/{{$json.id}}/createCase",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer WTN6o4TU5UKfzLDabaP67w5euqPuteZl"
+              "value": "Bearer hive api key"
             }
           ]
         },
@@ -127,13 +127,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.0.13:9001/api/analyzer/34979f3fc6f07b26ae9e5f6916e3c90d/run",
+        "url": "http://cortex/api/analyzer/34979f3fc6f07b26ae9e5f6916e3c90d/run",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer hqNx2QAAQQ5h5wEmuj97YFEQKIO5xhjZ"
+              "value": "Bearer cortex api key"
             }
           ]
         },
@@ -180,13 +180,13 @@
     },
     {
       "parameters": {
-        "url": "=http://192.168.0.13:9001/api/job/{{$json.jobId}}",
+        "url": "=http://cortex/api/job/{{$json.jobId}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer hqNx2QAAQQ5h5wEmuj97YFEQKIO5xhjZ"
+              "value": "Bearer cortex api key"
             }
           ]
         },
@@ -224,13 +224,13 @@
     },
     {
       "parameters": {
-        "url": "=http://192.168.0.13:9001/api/job/{{ $json.id }}/report ",
+        "url": "=http://cortex:9001/api/job/{{ $json.id }}/report ",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer hqNx2QAAQQ5h5wEmuj97YFEQKIO5xhjZ"
+              "value": "Bearer cortex api key"
             }
           ]
         },
@@ -247,8 +247,8 @@
     },
     {
       "parameters": {
-        "fromEmail": "aymen.boukadida@polytechnicien.tn",
-        "toEmail": "aymen.boukadida@polytechnicien.tn",
+        "fromEmail": "test@gmail.com",
+        "toEmail": "test@gmail.com",
         "subject": "=VirusTotal Report ",
         "html": "={{ $json.content.parts[0].text }}",
         "options": {}
@@ -283,7 +283,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "async function fetchWhois(domain) {\n  const apiKey = 'DjPEOQrHsPhSneJ+ttdlyw==XPvK2p6cNCkxZ2lS'; // <-- replace\n\n  try {\n    return await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://api.api-ninjas.com/v1/whois?domain=${domain}`,\n      headers: { 'X-Api-Key': apiKey },\n      json: true,\n    });\n  } catch (e) {\n    return {};\n  }\n}\n\nasync function dnsQuery(domain, type) {\n  try {\n    const res = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://dns.google/resolve?name=${domain}&type=${type}`,\n      json: true,\n    });\n\n    if (!res.Answer) return [];\n    return res.Answer.map(r => r.data);\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction normalizeDomain(value) {\n  if (!value) return \"\";\n\n  try {\n    if (value.startsWith(\"http\")) return new URL(value).hostname;\n    return value.trim();\n  } catch {\n    return value;\n  }\n}\n\nasync function enrich(domain) {\n  return {\n    indicator: domain,\n    dns: {\n      A: await dnsQuery(domain, 'A'),\n      NS: await dnsQuery(domain, 'NS'),\n      MX: await dnsQuery(domain, 'MX'),\n      TXT: await dnsQuery(domain, 'TXT'),\n    },\n    whois: await fetchWhois(domain),\n  };\n}\n\n\n// -------- MAIN PER-ITEM EXECUTION --------\n\nconst item = $input.item;\n\n// domain comes from item.json.data\nconst domain = normalizeDomain(item.json?.domain || \"\");\n\nconst enrichment = await enrich(domain);\n\n// ALWAYS return { json: {...object...} }\nreturn {\n  json: {\n    original: item.json || {},\n    enrichment: enrichment || {},\n  }\n};\n"
+        "jsCode": "async function fetchWhois(domain) {\n  const apiKey = 'apininjaapikey'; // <-- replace\n\n  try {\n    return await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://api.api-ninjas.com/v1/whois?domain=${domain}`,\n      headers: { 'X-Api-Key': apiKey },\n      json: true,\n    });\n  } catch (e) {\n    return {};\n  }\n}\n\nasync function dnsQuery(domain, type) {\n  try {\n    const res = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://dns.google/resolve?name=${domain}&type=${type}`,\n      json: true,\n    });\n\n    if (!res.Answer) return [];\n    return res.Answer.map(r => r.data);\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction normalizeDomain(value) {\n  if (!value) return \"\";\n\n  try {\n    if (value.startsWith(\"http\")) return new URL(value).hostname;\n    return value.trim();\n  } catch {\n    return value;\n  }\n}\n\nasync function enrich(domain) {\n  return {\n    indicator: domain,\n    dns: {\n      A: await dnsQuery(domain, 'A'),\n      NS: await dnsQuery(domain, 'NS'),\n      MX: await dnsQuery(domain, 'MX'),\n      TXT: await dnsQuery(domain, 'TXT'),\n    },\n    whois: await fetchWhois(domain),\n  };\n}\n\n\n// -------- MAIN PER-ITEM EXECUTION --------\n\nconst item = $input.item;\n\n// domain comes from item.json.data\nconst domain = normalizeDomain(item.json?.domain || \"\");\n\nconst enrichment = await enrich(domain);\n\n// ALWAYS return { json: {...object...} }\nreturn {\n  json: {\n    original: item.json || {},\n    enrichment: enrichment || {},\n  }\n};\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
