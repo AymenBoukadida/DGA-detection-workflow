@@ -1,0 +1,591 @@
+{
+  "name": "DNS ML + TheHive + Cortex End-to-End",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "return [\n  \n  { json: { data: \"6xzxsw3sokvg1tc752y1a6p0af.com\" } },\n  { json: { data: \"google.com\" } },\n  { json: { data: \"glbtlxwwhbnpxs.ru\" } },\n  { json: { data: \"xxmamopyipbfpk.ru\" } },\n  { json: { data: \"zfd5szpi18i85wj9uy13l69rg.net\" } },\n  { json: { data: \"jpqftymiuver.ru\" } },\n  { json: { data: \"takenroll.net\" } },\n  { json: { data: \"vrrtneoswsds.ru\" } },\n  { json: { data: \"mzapiwbcsbqiyxnlxa1hprx8n.com\" } },\n  { json: { data: \"xkoihiygtanuio.ru\" } },\n  { json: { data: \"dreamdont.net\" } },\n  { json: { data: \"visitshot.net\" } },\n  { json: { data: \"lpeespobepdxy.ru\" } },\n  { json: { data: \"wcsdwvdbpimqg.ru\" } },\n  { json: { data: \"rcdqeqmpxgdiuqombhuwcfu.ru\" } },\n  { json: { data: \"cmkrdurmtrhjylp.ru\" } },\n  { json: { data: \"plsibgabyyjbjc.ru\" } },\n  { json: { data: \"qrnafqrigldcjaa.ru\" } },\n  { json: { data: \"n3m4txqpb6a415iwzkrmdzgk6.com\" } },\n  { json: { data: \"1rw1pc44mkxp4qjx18qua26.net\" } },\n  { json: { data: \"itpkkibmmxao.ru\" } },\n  { json: { data: \"putisrswuvpk.ru\" } },\n  { json: { data: \"1x75xo41t4fno51wc86e1y4s13d.net\" } },\n  { json: { data: \"mostjune.net\" } },\n  { json: { data: \"1y6oppp7k3pwfpo2sfmkloyxa.biz\" } },\n  { json: { data: \"kctkokkiiavumpq.ru\" } },\n  { json: { data: \"dtfbtfrobxlle.ru\" } },\n  { json: { data: \"fairslow.net\" } },\n  { json: { data: \"sfmbdpnijlarq.cc\" } },\n  { json: { data: \"vdqqfdcax.im\" } },\n  { json: { data: \"svwivgcgkbgt.ru\" } }\n];\n"
+      },
+      "id": "b19b378e-1d14-4603-a9e8-d72c0ef86500",
+      "name": "Load Test Domains",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2720,
+        -1184
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 4,
+        "options": {}
+      },
+      "id": "babbfb42-339d-41d3-ad80-bfbda8743da8",
+      "name": "Split Domains",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        -2496,
+        -1184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.0.13:8000/predict",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{ $json.data }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4b82accf-52b0-4bb6-a8c7-9b77fdbc6fc0",
+      "name": "Predict DGA Score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -2272,
+        -1184
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.probability_DGA}}",
+              "operation": "largerEqual",
+              "value2": 0.6
+            }
+          ]
+        }
+      },
+      "id": "808f73af-6ba6-45df-8e6a-0bc06735ebd5",
+      "name": "Check Score",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2048,
+        -1184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.0.13:9000/api/alert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer WTN6o4TU5UKfzLDabaP67w5euqPuteZl"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"Suspicious domain detected\",\n  \"description\": \"This alert was generated automatically from the workflow.\",\n  \"source\": \"n8n\",\n  \"sourceRef\": \"{{ $json.domain }}-{{Date.now()}}\",\n  \"type\": \"external\",\n  \"severity\": {{ $json[\"probability_DGA\"] >= 0.8 ? 3 : $json[\"probability_DGA\"] >= 0.7 ? 2 : 1 }},\n  \"tlp\": {{ $json[\"probability_DGA\"] >= 0.8 ? 3 : $json[\"probability_DGA\"] >= 0.7 ? 2 : 1 }},\n  \"artifacts\": [\n    {\n      \"dataType\": \"domain\",\n      \"data\": \"{{$json[\"domain\"]}}\",\n      \"message\": \"Domain classified as suspicious\",\n      \"tlp\": 2,\n      \"ioc\": true,\n      \"tags\": [\"ml-dga\"]\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "id": "33559bf6-216a-4546-8858-b035b3c4eee6",
+      "name": "Create Hive Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1824,
+        -1280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://192.168.0.13:9000/api/alert/{{$json.id}}/createCase",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer WTN6o4TU5UKfzLDabaP67w5euqPuteZl"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f5b00d0d-d77d-41bb-9f30-22a5a02c9679",
+      "name": "Promote to Case",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1600,
+        -1280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.0.13:9001/api/analyzer/34979f3fc6f07b26ae9e5f6916e3c90d/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer hqNx2QAAQQ5h5wEmuj97YFEQKIO5xhjZ"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n \"data\": \"{{ $('Load Test Domains').item.json.domain }}\",\n \"dataType\": \"domain\",\n \"tlp\": 2,\n \"message\": \"Suspicious domain from alert\",\n \"parameters\": {}\n}",
+        "options": {}
+      },
+      "id": "c9fe9a50-452a-4b52-a685-35969da4864f",
+      "name": "Run Cortex Analyzer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1376,
+        -1280
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{ json: { jobId: $json.id, attempts: 0 }}];"
+      },
+      "id": "c55bd2fd-8b58-4fcd-a6ef-22596c71ea2c",
+      "name": "Extract Job ID",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1152,
+        -1280
+      ]
+    },
+    {
+      "parameters": {
+        "unit": "minutes"
+      },
+      "id": "296f8414-d829-4e2f-9132-f019fc6013b2",
+      "name": "Wait 5 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        -928,
+        -1280
+      ],
+      "webhookId": "cd26dba3-59d4-4759-aaec-3d42e88f6914"
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.13:9001/api/job/{{$json.jobId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer hqNx2QAAQQ5h5wEmuj97YFEQKIO5xhjZ"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0837964a-044f-4dbb-ba3e-376a21f4b1db",
+      "name": "Check Job Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -704,
+        -1352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.status}}",
+              "operation": "notEqual",
+              "value2": "Success"
+            }
+          ]
+        }
+      },
+      "id": "8c837168-acd5-4b8c-aca4-6b3fe4f558cc",
+      "name": "Is Job Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -1280
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.13:9001/api/job/{{ $json.id }}/report ",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer hqNx2QAAQQ5h5wEmuj97YFEQKIO5xhjZ"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -256,
+        -1184
+      ],
+      "id": "49ac14f9-e0ff-4a32-95d2-d80b9b6d4571",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "fromEmail": "aymen.boukadida@polytechnicien.tn",
+        "toEmail": "aymen.boukadida@polytechnicien.tn",
+        "subject": "=VirusTotal Report ",
+        "html": "={{ $json.content.parts[0].text }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        544,
+        -1184
+      ],
+      "id": "e1569bc4-adf8-4531-b679-2a433cdf5369",
+      "name": "Send email",
+      "webhookId": "3206f5ac-0126-47bd-839e-d9202bcbe547",
+      "credentials": {
+        "smtp": {
+          "id": "m5Ch8iAt5cJgQcm5",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "034e6dd3-76b2-41b0-b896-4bacaea36fad",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2944,
+        -1184
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "async function fetchWhois(domain) {\n  const apiKey = 'DjPEOQrHsPhSneJ+ttdlyw==XPvK2p6cNCkxZ2lS'; // <-- replace\n\n  try {\n    return await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://api.api-ninjas.com/v1/whois?domain=${domain}`,\n      headers: { 'X-Api-Key': apiKey },\n      json: true,\n    });\n  } catch (e) {\n    return {};\n  }\n}\n\nasync function dnsQuery(domain, type) {\n  try {\n    const res = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://dns.google/resolve?name=${domain}&type=${type}`,\n      json: true,\n    });\n\n    if (!res.Answer) return [];\n    return res.Answer.map(r => r.data);\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction normalizeDomain(value) {\n  if (!value) return \"\";\n\n  try {\n    if (value.startsWith(\"http\")) return new URL(value).hostname;\n    return value.trim();\n  } catch {\n    return value;\n  }\n}\n\nasync function enrich(domain) {\n  return {\n    indicator: domain,\n    dns: {\n      A: await dnsQuery(domain, 'A'),\n      NS: await dnsQuery(domain, 'NS'),\n      MX: await dnsQuery(domain, 'MX'),\n      TXT: await dnsQuery(domain, 'TXT'),\n    },\n    whois: await fetchWhois(domain),\n  };\n}\n\n\n// -------- MAIN PER-ITEM EXECUTION --------\n\nconst item = $input.item;\n\n// domain comes from item.json.data\nconst domain = normalizeDomain(item.json?.domain || \"\");\n\nconst enrichment = await enrich(domain);\n\n// ALWAYS return { json: {...object...} }\nreturn {\n  json: {\n    original: item.json || {},\n    enrichment: enrichment || {},\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        -992
+      ],
+      "id": "c23985fc-1d99-4523-9c70-4b0560afad1a",
+      "name": "whois enrichment for non dga detected domains"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -32,
+        -1200
+      ],
+      "id": "3238e35a-03f3-4528-8b02-d765664332ac",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "async function fetchWhois(domain) {\n  const apiKey = 'DjPEOQrHsPhSneJ+ttdlyw==XPvK2p6cNCkxZ2lS';\n\n  try {\n    return await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'https://api.api-ninjas.com/v1/whois',\n      qs: { domain },\n      headers: { 'X-Api-Key': apiKey },\n      json: true,\n      timeout: 10000,\n    });\n  } catch {\n    return { error: 'whois_lookup_failed' };\n  }\n}\n\nfunction normalizeDomain(value) {\n  if (!value || typeof value !== 'string') return '';\n  try {\n    if (value.startsWith('http')) return new URL(value).hostname;\n    return value.trim();\n  } catch {\n    return value.trim();\n  }\n}\n\n// ---------------- MAIN ----------------\n\nconst alert = $input.item.json;\n\n// Extract domain artifacts\nconst domainArtifacts = Array.isArray(alert.artifacts)\n  ? alert.artifacts.filter(a => a.dataType === 'domain' && a.data)\n  : [];\n\nif (domainArtifacts.length === 0) {\n  return {\n    json: {\n      ...alert,\n      whois_enrichment: [],\n      enrichment_status: 'no_domain_artifacts',\n    },\n  };\n}\n\n// WHOIS enrichment for each domain\nconst whoisResults = [];\n\nfor (const artifact of domainArtifacts) {\n  const domain = normalizeDomain(artifact.data);\n\n  if (!domain) continue;\n\n  const whois = await fetchWhois(domain);\n\n  whoisResults.push({\n    indicator: domain,\n    tags: artifact.tags || [],\n    whois,\n  });\n}\n\nreturn {\n  json: {\n    ...alert,\n    whois_enrichment: whoisResults,\n    enrichment_status: 'success',\n  },\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        -1376
+      ],
+      "id": "ef5e418f-3b7a-48f4-9aed-163569345913",
+      "name": "whois enrichment for  dga detected domains"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a SOC analyst assistant.\n\nSummarize the security context of the following domain indicator using all available data.\nFocus only on actionable intelligence.\nIf a field is missing, state \"Not available\".\n\nInclude the following sections:\n\n- Indicator\n- Indicator Type\n- Detection Source\n- VirusTotal Verdict\n- WHOIS Summary\n- DNS Observations\n- Risk Level\n- Recommended Action\n\nContext Data:\nIndicator Type: Domain\nIndicator Value: {{ $json.enrichment?.indicator || $json.domain || $json.artifacts?.[0]?.data }}\n\nDetection Source:\n- ML/DGA Classification (if present)\n- VirusTotal Analyzer (if present)\n\nVirusTotal Verdict:\n{{ $json.report?.full?.verbose_msg || \"No VirusTotal detection data\" }}\n\nWHOIS Summary:\nRegistrar: {{ $json.enrichment?.whois?.registrar || \"Unknown\" }}\nCreation Date: {{ $json.enrichment?.whois?.creation_date || \"Unknown\" }}\nCountry: {{ $json.enrichment?.whois?.country || \"Unknown\" }}\n\nDNS Observations:\nA Records: {{ $json.enrichment?.dns?.A || \"None\" }}\nNS Records: {{ $json.enrichment?.dns?.NS || \"None\" }}\nMX Records: {{ $json.enrichment?.dns?.MX || \"None\" }}\n\nRisk Level:\n- Consider DGA likelihood\n- Consider recent domain registration\n- Consider lack of reputation data\n\nRecommended Action:\n- Monitoring, blocking, or investigation steps appropriate for a SOC\n"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        192,
+        -1184
+      ],
+      "id": "bafc934a-fb0c-4cae-b519-4244330703b3",
+      "name": "improving MTTR with Ai summarization",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "gGT7VK7f0Fqwojvz",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Load Test Domains": {
+      "main": [
+        [
+          {
+            "node": "Split Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Domains": {
+      "main": [
+        [
+          {
+            "node": "Predict DGA Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict DGA Score": {
+      "main": [
+        [
+          {
+            "node": "Check Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Score": {
+      "main": [
+        [
+          {
+            "node": "Create Hive Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "whois enrichment for non dga detected domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Hive Alert": {
+      "main": [
+        [
+          {
+            "node": "Promote to Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Promote to Case": {
+      "main": [
+        [
+          {
+            "node": "Run Cortex Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Cortex Analyzer": {
+      "main": [
+        [
+          {
+            "node": "Extract Job ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Job ID": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Check Job Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Job Status": {
+      "main": [
+        [
+          {
+            "node": "Is Job Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Job Finished?": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "whois enrichment for  dga detected domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        []
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Load Test Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "whois enrichment for non dga detected domains": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "improving MTTR with Ai summarization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "whois enrichment for  dga detected domains": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "improving MTTR with Ai summarization": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "38a8f990-025b-455a-9dcd-fad625084575",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f3fb3949e96effa35ddf3a329b582a0b5e7161ae9d200cf48dfed7707c37341a"
+  },
+  "id": "aktNoQYELCqFcWJ5",
+  "tags": [
+    {
+      "updatedAt": "2026-01-04T04:35:39.618Z",
+      "createdAt": "2026-01-04T04:35:39.618Z",
+      "id": "oUVWkWcsOeO0mHjJ",
+      "name": "final"
+    }
+  ]
+}
