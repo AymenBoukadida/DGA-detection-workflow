@@ -182,7 +182,7 @@ README.md
 
 ## 📜 docs/architecture.md
 
-```md
+
 # System Architecture
 
 This document explains the architecture used in the DNS DGA Detection pipeline.
@@ -213,26 +213,7 @@ This document explains the architecture used in the DNS DGA Detection pipeline.
 7. Results summarized
 8. Email sent to SOC
 
-
-
----
-
-## ✉ Email Content (HTML Template)
-
-
-<h2>DNS DGA Detection Report</h2>
-
-<p><strong>Domain:</strong> {{domain}}</p>
-<p><strong>DGA Probability:</strong> {{probability}}</p>
-<p><strong>Risk Level:</strong> {{risk_level}}</p>
-
-<h3>VirusTotal Summary</h3>
-<p>{{taxonomy}}</p>
-
-<p><strong>Conclusion:</strong> {{summary}}</p>
-```
-
----
+-
 
 ## 🚀 Results & Benefits
 
