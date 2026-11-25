@@ -1,6 +1,6 @@
 # DNS DGA Detection and SOC Pipeline
 
-Local lab that scores domains with a machine learning API, raises TheHive alerts and cases, runs VirusTotal through Cortex, enriches with WHOIS and DNS, then sends one AI-written SOC report by email.
+Local lab that scores domains with a machine learning API, raises TheHive alerts and cases, runs VirusTotal through Cortex, enriches with WHOIS and DNS, then emails a short SOC report.
 
 Everything runs in Docker Compose. No cloud account is needed except API keys for VirusTotal, API-Ninjas and an LLM provider.
 
@@ -37,7 +37,7 @@ Copy-Item .env.example .env
 .\lab.ps1
 ```
 
-The script builds the ML API, starts the stack, creates the TheHive organisation and analyst, enables the VirusTotal analyzer in Cortex, creates the n8n owner and imports the workflow.
+`lab.ps1` starts the stack and runs setup scripts. The scripts build the ML API, create users and API keys, enable the VirusTotal analyzer, create the n8n owner and import the workflow.
 
 Then:
 
@@ -66,7 +66,7 @@ Scores map to TheHive severity: `0.6-0.69` low, `0.7-0.79` medium, `>= 0.8` high
 ```
 ml-api/            DGA classifier (FastAPI + scikit-learn)
 workflow/          importable n8n workflow
-bootstrap/         one-shot setup for Cortex, TheHive, n8n
+bootstrap/         setup scripts for Cortex, TheHive and n8n
 config/            TheHive and Cortex configuration
 docs/              architecture and screenshots
 docker-compose.yml
@@ -91,5 +91,5 @@ All settings live in `.env`:
 
 - The workflow reads secrets from n8n credentials, never from the workflow file.
 - Cortex runs analyzers as Docker containers, so it mounts the host Docker socket. This is lab-only.
-- An API-Ninjas key was committed in the old workflow file. Rotate it if it is still active; see `SECURITY.md`.
+- An API-Ninjas key was committed in the old workflow file. Rotate it if it is still active.
 - `docker compose down -v` removes all lab data.
