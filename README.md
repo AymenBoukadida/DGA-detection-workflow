@@ -14,7 +14,6 @@ Everything runs in Docker Compose. No cloud account is needed except API keys fo
 | ML API docs | http://localhost:8000/docs |
 | MailHog inbox | http://localhost:8025 |
 
-Published ports bind to `127.0.0.1` only.
 
 ## Screenshots
 
