@@ -1,0 +1,27 @@
+.env
+bootstrap/out/
+cortex-jobs/
+es-data/
+cassandra-data/
+n8n-data/
+*.log
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+ml-api/model.joblib
+
+# Local AI and skill artifacts
+.superpowers/
+docs/superpowers/
+.impeccable/
+.agents/
+skills/
+SKILL.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+DESIGN.md
+PRODUCT.md
+AI-*.md
+AI_*.md

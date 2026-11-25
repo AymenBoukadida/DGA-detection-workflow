@@ -1,0 +1,931 @@
+{
+  "name": "DGA Detection to SOC Report",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9d4f1a10-0001-4a01-9001-000000000001",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://cortex:9001/cortex/api/analyzer?range=all",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000002",
+      "name": "List Cortex Analyzers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1000,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-cortex",
+          "name": "Cortex API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const analyzers = $input.all().map((item) => item.json);\nconst virustotal = analyzers.find((analyzer) => {\n  const name = String(analyzer.name || '').toLowerCase();\n  return name.includes('virustotal') && (name.includes('report') || name.includes('get'));\n});\nif (!virustotal) {\n  throw new Error('no VirusTotal report analyzer is enabled in Cortex');\n}\nreturn [{ json: { analyzerId: virustotal.id, analyzerName: virustotal.name } }];"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000003",
+      "name": "Pick VT Analyzer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const domains = [\n  '6xzxsw3sokvg1tc752y1a6p0af.com',\n  'orchidshadow.com',\n  'topazwolf.com',\n  'blackbrick.com',\n  'quartzhoney.com',\n  'flintlunar.com',\n  'google.com',\n  'github.com',\n  'microsoft.com',\n  'cloudflare.com',\n  'amazon.com',\n  'apple.com'\n];\nconst state = $getWorkflowStaticData('global');\nstate.expected = domains;\nstate.results = {};\nstate.emitted = false;\nreturn domains.map((domain) => ({ json: { domain } }));"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000004",
+      "name": "Load Domains",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ml-api:8000/predict",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ domain: $json.domain }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000005",
+      "name": "Predict DGA Score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const prediction = $input.item.json;\nconst probability = Number(prediction.probability_DGA);\nlet severity = 0;\nif (probability >= 0.8) severity = 3;\nelse if (probability >= 0.7) severity = 2;\nelse if (probability >= 0.6) severity = 1;\nreturn {\n  json: {\n    domain: prediction.domain,\n    probability_DGA: probability,\n    label: prediction.label,\n    severity,\n    suspicious: probability >= 0.6\n  }\n};"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000006",
+      "name": "Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition-dga-score",
+              "leftValue": "={{ $json.suspicious }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000007",
+      "name": "Is DGA?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://thehive:9000/thehive/api/v1/alert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Organisation",
+              "value": "={{ $env.LAB_ORG }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: 'DGA domain detected: ' + $json.domain, description: 'Automated DGA detection. ML probability ' + $json.probability_DGA + '.', source: 'n8n-dga-pipeline', sourceRef: $json.domain + '-' + Date.now(), type: 'dga', severity: $json.severity, tlp: 2, tags: ['dga', 'ml', 'dns'], observables: [{ dataType: 'domain', data: $json.domain, message: 'Domain classified as DGA by the ML API', tlp: 2, ioc: true, tags: ['ml-dga'] }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000008",
+      "name": "Create Hive Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        -200
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "cred-thehive",
+          "name": "TheHive API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://thehive:9000/thehive/api/v1/alert/{{ $json._id }}/case",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Organisation",
+              "value": "={{ $env.LAB_ORG }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ caseTemplate: 'DGA Investigation' }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000009",
+      "name": "Promote to Case",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        -200
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "cred-thehive",
+          "name": "TheHive API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://cortex:9001/cortex/api/analyzer/{{ $('Pick VT Analyzer').first().json.analyzerId }}/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: $('Score').item.json.domain, dataType: 'domain', tlp: 2, message: 'DGA score ' + $('Score').item.json.probability_DGA }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000000a",
+      "name": "Run VirusTotal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-cortex",
+          "name": "Cortex API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000000b",
+      "name": "Wait For VT",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        -200
+      ],
+      "webhookId": "9d4f1a10-0001-4a01-9001-00000000000b"
+    },
+    {
+      "parameters": {
+        "url": "=http://cortex:9001/cortex/api/job/{{ $json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000000c",
+      "name": "Get VT Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-cortex",
+          "name": "Cortex API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition-job-status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "Success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000000d",
+      "name": "Job Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition-attempts",
+              "leftValue": "={{ $runIndex }}",
+              "rightValue": 8,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000000e",
+      "name": "Attempts Left?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const score = $('Score').item.json;\nreturn {\n  json: {\n    domain: score.domain,\n    probability_DGA: score.probability_DGA,\n    label: score.label,\n    severity: score.severity,\n    verdict: 'suspicious',\n    vt_status: 'timeout',\n    vt: null\n  }\n};"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000000f",
+      "name": "VT Timeout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://cortex:9001/cortex/api/job/{{ $json.id }}/report",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000010",
+      "name": "Get VT Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-cortex",
+          "name": "Cortex API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.api-ninjas.com/v1/whois?domain={{ $('Score').item.json.domain }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000011",
+      "name": "WHOIS suspicious",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-apininjas",
+          "name": "API-Ninjas"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const score = $('Score').item.json;\nlet vt = null;\ntry {\n  vt = $('Get VT Report').item.json;\n} catch (error) {\n  vt = null;\n}\nreturn {\n  json: {\n    domain: score.domain,\n    probability_DGA: score.probability_DGA,\n    label: score.label,\n    severity: score.severity,\n    verdict: 'suspicious',\n    vt_status: vt ? 'success' : 'unavailable',\n    vt,\n    whois: $input.item.json\n  }\n};"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000012",
+      "name": "Assemble suspicious",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.api-ninjas.com/v1/whois?domain={{ $('Score').item.json.domain }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000013",
+      "name": "WHOIS benign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-apininjas",
+          "name": "API-Ninjas"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://dns.google/resolve?name={{ $('Score').item.json.domain }}&type=A",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000014",
+      "name": "DNS A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://dns.google/resolve?name={{ $('Score').item.json.domain }}&type=NS",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000015",
+      "name": "DNS NS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const score = $('Score').item.json;\nconst answer = (response) => Array.isArray(response?.Answer) ? response.Answer.map((record) => record.data) : [];\nreturn {\n  json: {\n    domain: score.domain,\n    probability_DGA: score.probability_DGA,\n    label: score.label,\n    severity: score.severity,\n    verdict: 'benign',\n    vt_status: 'skipped',\n    vt: null,\n    whois: $('WHOIS benign').item.json,\n    dns: { A: answer($('DNS A').item.json), NS: answer($('DNS NS').item.json) }\n  }\n};"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000016",
+      "name": "Assemble benign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const state = $getWorkflowStaticData('global');\nfor (const item of $input.all()) {\n  const result = item.json;\n  if (!state.results) state.results = {};\n  if (result && result.domain) state.results[result.domain] = result;\n}\nif (state.emitted || !state.expected) return [];\nconst complete = state.expected.every((domain) => state.results[domain]);\nif (!complete) return [];\nstate.emitted = true;\nreturn [{ json: { results: state.expected.map((domain) => state.results[domain]) } }];"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000017",
+      "name": "Collect Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const collected = $input.first()?.json?.results;\nconst results = Array.isArray(collected)\n  ? collected\n  : $input.all().map((item) => item.json);\nconst suspicious = results.filter((result) => result.verdict === 'suspicious');\nconst benign = results.filter((result) => result.verdict === 'benign');\nconst report = {\n  generatedAt: new Date().toISOString(),\n  total: results.length,\n  suspicious: suspicious.length,\n  benign: benign.length,\n  domains: results.map((result) => ({\n    domain: result.domain,\n    probability_DGA: result.probability_DGA,\n    verdict: result.verdict,\n    severity: result.severity,\n    vt_status: result.vt_status,\n    vt_detected: (result.vt?.report?.summary?.taxonomies ?? result.vt?.summary?.taxonomies ?? []).map((taxonomy) => taxonomy.value),\n    whois_registrar: result.whois?.registrar ?? 'Not available',\n    whois_country: result.whois?.country ?? 'Not provided',\n    dns_a: result.dns?.A ?? [],\n    dns_ns: result.dns?.NS ?? []\n  }))\n};\nreturn [{ json: { report, promptText: JSON.stringify(report, null, 2) } }];"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000018",
+      "name": "Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const provider = String($env.LLM_PROVIDER || 'groq').toLowerCase();\nconst apiKey = String($env.LLM_API_KEY || '');\nconst model = String($env.LLM_MODEL || (provider === 'gemini' ? 'gemini-2.5-flash' : 'openai/gpt-oss-20b'));\nconst prompt = 'You are a SOC analyst. Write a concise report for the following DNS/DGA triage results. Use these sections: Executive summary, Suspicious domains, Benign domains, VirusTotal verdicts, WHOIS observations, DNS observations, Recommended actions. Keep it factual and short. Include WHOIS registrar and country only when the data contains them. Never claim country when it says Not provided. Data:\\n' + $json.promptText;\nlet url;\nlet body;\nif (provider === 'gemini') {\n  url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);\n  body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } };\n} else {\n  url = 'https://api.groq.com/openai/v1/chat/completions';\n  body = { model, temperature: 0.2, max_tokens: 2048, messages: [{ role: 'user', content: prompt }] };\n}\nreturn [{ json: { url, body: JSON.stringify(body), provider, model, hasKey: apiKey.length > 0, prompt, report: $json.report } }];"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-000000000019",
+      "name": "Prepare LLM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.LLM_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000001c",
+      "name": "LLM Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const response = $input.item.json || {};\nconst prepared = $('Prepare LLM').item.json;\nconst gemini = (response.candidates?.[0]?.content?.parts ?? []).map((part) => part.text || '').join('\\n').trim();\nconst groq = (response.choices?.[0]?.message?.content ?? '').trim();\nconst summary = gemini || groq;\nconst fallback = 'No LLM used (' + prepared.provider + '/' + prepared.model + '). Set LLM_API_KEY in .env and rerun for narrative summary. Raw triage report:\\n\\n' + prepared.prompt;\nreturn { json: { ...prepared.report, summary: summary || fallback, summary_source: summary ? prepared.provider : 'fallback' } };"
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000001a",
+      "name": "Extract Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $env.SMTP_TO }}",
+        "subject": "=DGA triage report: {{ $json.suspicious }} suspicious of {{ $json.total }} domains",
+        "html": "=<h2>DGA triage report</h2><p>{{ $json.suspicious }} suspicious, {{ $json.benign }} benign, {{ $json.total }} domains analysed.</p><pre style=\"white-space:pre-wrap\">{{ $json.summary }}</pre>",
+        "options": {}
+      },
+      "id": "9d4f1a10-0001-4a01-9001-00000000001b",
+      "name": "Send SOC Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3840,
+        40
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "cred-smtp",
+          "name": "MailHog SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "List Cortex Analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Cortex Analyzers": {
+      "main": [
+        [
+          {
+            "node": "Pick VT Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick VT Analyzer": {
+      "main": [
+        [
+          {
+            "node": "Load Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Domains": {
+      "main": [
+        [
+          {
+            "node": "Predict DGA Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict DGA Score": {
+      "main": [
+        [
+          {
+            "node": "Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score": {
+      "main": [
+        [
+          {
+            "node": "Is DGA?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is DGA?": {
+      "main": [
+        [
+          {
+            "node": "Create Hive Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WHOIS benign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Hive Alert": {
+      "main": [
+        [
+          {
+            "node": "Promote to Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Promote to Case": {
+      "main": [
+        [
+          {
+            "node": "Run VirusTotal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run VirusTotal": {
+      "main": [
+        [
+          {
+            "node": "Wait For VT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For VT": {
+      "main": [
+        [
+          {
+            "node": "Get VT Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get VT Job": {
+      "main": [
+        [
+          {
+            "node": "Job Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Finished?": {
+      "main": [
+        [
+          {
+            "node": "Get VT Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Attempts Left?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attempts Left?": {
+      "main": [
+        [
+          {
+            "node": "Wait For VT",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "VT Timeout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get VT Report": {
+      "main": [
+        [
+          {
+            "node": "WHOIS suspicious",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VT Timeout": {
+      "main": [
+        [
+          {
+            "node": "WHOIS suspicious",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WHOIS suspicious": {
+      "main": [
+        [
+          {
+            "node": "Assemble suspicious",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble suspicious": {
+      "main": [
+        [
+          {
+            "node": "Collect Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WHOIS benign": {
+      "main": [
+        [
+          {
+            "node": "DNS A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DNS A": {
+      "main": [
+        [
+          {
+            "node": "DNS NS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DNS NS": {
+      "main": [
+        [
+          {
+            "node": "Assemble benign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble benign": {
+      "main": [
+        [
+          {
+            "node": "Collect Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report": {
+      "main": [
+        [
+          {
+            "node": "Prepare LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare LLM": {
+      "main": [
+        [
+          {
+            "node": "LLM Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Summary": {
+      "main": [
+        [
+          {
+            "node": "Extract Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Summary": {
+      "main": [
+        [
+          {
+            "node": "Send SOC Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Results": {
+      "main": [
+        [
+          {
+            "node": "Build Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "active": false,
+  "pinData": {}
+}

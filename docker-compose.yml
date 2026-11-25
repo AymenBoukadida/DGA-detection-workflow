@@ -1,0 +1,236 @@
+services:
+  elasticsearch:
+    image: elasticsearch:8.19.25
+    container_name: dga-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      cluster.name: dga-lab
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      bootstrap.memory_lock: "true"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    mem_limit: 2200m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  cassandra:
+    image: cassandra:4.1.12
+    container_name: dga-cassandra
+    restart: unless-stopped
+    environment:
+      CASSANDRA_CLUSTER_NAME: thp
+      CASSANDRA_NUM_TOKENS: "4"
+      MAX_HEAP_SIZE: 1024M
+      HEAP_NEWSIZE: 256M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    mem_limit: 2000m
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 90s
+
+  thehive:
+    image: strangebee/thehive:6.0.0-3
+    container_name: dga-thehive
+    restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    environment:
+      THEHIVE_SECRET: ${THEHIVE_SECRET}
+      TH_SECRET: ${THEHIVE_SECRET}
+      TH_CQL_HOSTNAMES: cassandra
+      TH_ELASTICSEARCH_HOSTNAMES: elasticsearch
+      TH_INDEX_BACKEND: elasticsearch
+      JAVA_OPTS: -Xms1280M -Xmx1280M -XX:MaxMetaspaceSize=400m -XX:ReservedCodeCacheSize=250m
+    volumes:
+      - ./config/thehive:/etc/thehive:ro
+      - thehive-files:/opt/thp/thehive/files
+    ports:
+      - "127.0.0.1:9000:9000"
+    mem_limit: 2200m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/thehive/api/status >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+
+  cortex-jobs-init:
+    image: alpine:3.20
+    container_name: dga-cortex-jobs-init
+    restart: "no"
+    entrypoint: ["sh", "-c", "chown -R 1001:1001 /jobs && chmod -R 775 /jobs"]
+    volumes:
+      - cortex-jobs:/jobs
+
+  cortex:
+    image: thehiveproject/cortex:4.2.0
+    container_name: dga-cortex
+    restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      cortex-jobs-init:
+        condition: service_completed_successfully
+    environment:
+      CORTEX_SECRET: ${CORTEX_SECRET}
+      JAVA_OPTS: -Xms1000M -Xmx1000M -XX:MaxMetaspaceSize=400m -XX:ReservedCodeCacheSize=250m
+      es_uri: http://elasticsearch:9200
+      job_directory: /tmp/cortex-jobs
+      docker_job_directory: ${CORTEX_JOB_DIR:-/var/lib/docker/volumes/dga-detection-workflow_cortex-jobs/_data}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config/cortex:/etc/cortex:ro
+      - cortex-jobs:/tmp/cortex-jobs
+    ports:
+      - "127.0.0.1:9001:9001"
+    mem_limit: 2200m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9001/cortex/api/status >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+
+  ml-api:
+    build:
+      context: ./ml-api
+    container_name: dga-ml-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    mem_limit: 700m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  n8n:
+    image: n8nio/n8n:2.50.1
+    container_name: dga-n8n
+    restart: unless-stopped
+    depends_on:
+      ml-api:
+        condition: service_healthy
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_RUNNERS_ENABLED: "true"
+      GENERIC_TIMEZONE: UTC
+      TZ: UTC
+      LAB_ORG: ${LAB_ORG}
+      LLM_PROVIDER: ${LLM_PROVIDER}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_TO: ${SMTP_TO}
+      DB_SQLITE_POOL_SIZE: "4"
+      N8N_LOG_LEVEL: info
+    volumes:
+      - n8n-data:/home/node/.n8n
+    ports:
+      - "127.0.0.1:5678:5678"
+    mem_limit: 1200m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  n8n-cli:
+    image: n8nio/n8n:2.50.1
+    profiles: ["tools"]
+    entrypoint: ["n8n"]
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      LAB_ORG: ${LAB_ORG}
+      LLM_PROVIDER: ${LLM_PROVIDER}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_TO: ${SMTP_TO}
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./workflow:/import:ro
+      - ./bootstrap/out:/out:ro
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: dga-mailhog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    mem_limit: 200m
+
+  bootstrap:
+    build:
+      context: ./bootstrap
+    container_name: dga-bootstrap
+    profiles: ["tools"]
+    depends_on:
+      thehive:
+        condition: service_healthy
+      cortex:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+    environment:
+      THEHIVE_URL: http://thehive:9000/thehive
+      CORTEX_URL: http://cortex:9001/cortex
+      CORTEX_PUBLIC_URL: http://cortex:9001/cortex
+      N8N_URL: http://n8n:5678
+      THEHIVE_ADMIN_USER: ${THEHIVE_ADMIN_USER}
+      THEHIVE_ADMIN_PASSWORD: ${THEHIVE_ADMIN_PASSWORD}
+      CORTEX_ADMIN_USER: ${CORTEX_ADMIN_USER}
+      CORTEX_ADMIN_PASSWORD: ${CORTEX_ADMIN_PASSWORD}
+      LAB_ORG: ${LAB_ORG}
+      LAB_USER: ${LAB_USER}
+      LAB_USER_PASSWORD: ${LAB_USER_PASSWORD}
+      N8N_OWNER_EMAIL: ${N8N_OWNER_EMAIL}
+      N8N_OWNER_PASSWORD: ${N8N_OWNER_PASSWORD}
+      N8N_OWNER_FIRST_NAME: ${N8N_OWNER_FIRST_NAME}
+      N8N_OWNER_LAST_NAME: ${N8N_OWNER_LAST_NAME}
+      VT_API_KEY: ${VT_API_KEY}
+      APININJAS_API_KEY: ${APININJAS_API_KEY}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_TO: ${SMTP_TO}
+    volumes:
+      - ./bootstrap/out:/out
+
+volumes:
+  es-data:
+  cassandra-data:
+  thehive-files:
+  n8n-data:
+  cortex-jobs:
